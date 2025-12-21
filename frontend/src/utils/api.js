@@ -5,7 +5,7 @@ import Cookies from 'js-cookie';
 const API_URL = 'http://localhost:5000/api';
 
 const api = axios.create({
-    baseUrl: API_URL,
+    baseURL: API_URL,
     headers: {
         'Content-Type': 'application/json',
     }

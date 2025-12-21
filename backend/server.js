@@ -6,7 +6,10 @@ const app = express();
 
 // Middleware
 app.use(express.json());
-app.use(cors());
+app.use(cors({
+    origin: 'http://localhost:3000',    // Allow only port 3000 Next.js frontend
+    credentials: true   // Allow cookies/headers to be sent
+}));
 
 // Routes
 app.use('/api/auth', require('./src/routes/authRoutes'));
