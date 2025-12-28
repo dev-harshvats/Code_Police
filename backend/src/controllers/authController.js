@@ -1,80 +1,113 @@
 const pool = require('../config/db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const cfService = require('../services/codeforcesService');
+const lcService = require('../services/leetcodeService');
 
-exports.signup = async(req, res) => {
-    const { email, password, cfHandle, leetcode_handle } = req.body;
+exports.signup = async (req, res) => {
+    // 1. Sanitize Inputs (Convert empty strings to null)
+    let { email, password, cfHandle, leetcodeHandle } = req.body;
+    
+    if (!cfHandle || cfHandle.trim() === '') cfHandle = null;
+    if (!leetcodeHandle || leetcodeHandle.trim() === '') leetcodeHandle = null;
 
-    console.log('Signup Request Recieved:', req.body);
-    try{
-        // 1. Check if user exists
-        const userCheck = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-        if(userCheck.rows.length > 0){
-            return res.status(400).json({
-                msg: 'User already exists'
-            });
+    console.log('Signup Request:', { email, cfHandle, leetcodeHandle });
+
+    try {
+        // 2. Validate: Must have at least one handle
+        if (!cfHandle && !leetcodeHandle) {
+            return res.status(400).json({ msg: 'Please provide at least one platform handle.' });
         }
 
-        // 2. Hash password
+        // 3. Check if user exists
+        const userCheck = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+        if (userCheck.rows.length > 0) {
+            return res.status(400).json({ msg: 'User already exists' });
+        }
+
+        // 4. Hash password
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        // 3. Insert int DB
+        // 5. Insert into DB (Nulls will be inserted correctly)
         const newUser = await pool.query(
-            'INSERT INTO users (email, password, codeforces_handle, leetcode_handle) VALUES ($1, $2, $3, $4) RETURNING *', [email, hashedPassword, cfHandle, leetcode_handle]
+            'INSERT INTO users (email, password, codeforces_handle, leetcode_handle) VALUES ($1, $2, $3, $4) RETURNING *',
+            [email, hashedPassword, cfHandle, leetcodeHandle]
         );
 
-        // 4. Return JWT
-        const payload = {
-            user: {
-                id: newUser.rows[0].id
-            }
-        };
+        const userId = newUser.rows[0].id;
+
+        // 6. Background Data Fetch (Only for provided handles)
+        if (cfHandle) {
+            cfService.fetchCFStats(cfHandle)
+                .then(data => {
+                    if (data && data.rating) {
+                        pool.query('UPDATE users SET cf_rating = $1, cf_solved = $2 WHERE id = $3', 
+                        [data.rating, data.totalSolved, userId]);
+                    }
+                })
+                .catch(err => console.error(`[Signup] CF Fetch Error: ${err.message}`));
+        }
+
+        if (leetcodeHandle) {
+            lcService.fetchLeetcodeStats(leetcodeHandle)
+                .then(data => {
+                    if (data && data.totalSolved) {
+                        pool.query('UPDATE users SET lc_solved = $1, lc_rating = $2 WHERE id = $3', 
+                        [data.totalSolved, data.rating, userId]);
+                    }
+                })
+                .catch(err => console.error(`[Signup] LC Fetch Error: ${err.message}`));
+        }
+
+        // 7. Return Token
+        const payload = { user: { id: userId } };
         jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '5d' }, (err, token) => {
-            if(err){
-                throw err;
-            }
-            res.json({
-                token
-            });
+            if (err) throw err;
+            res.json({ token });
         });
-    } catch(err){
+
+    } catch (err) {
         console.error(err.message);
         res.status(500).send('Server Error');
     }
 };
 
-exports.login = async(req, res) => {
+// Login and UpdateProfile functions remain unchanged...
+exports.login = async (req, res) => {
     const { email, password } = req.body;
-    try{
+    try {
         const user = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-        if(user.rows.length === 0){
-            return res.status(400).json({
-                msg: 'Invalid Credentials'
-            });
-        }
+        if (user.rows.length === 0) return res.status(400).json({ msg: 'Invalid Credentials' });
 
         const isMatch = await bcrypt.compare(password, user.rows[0].password);
-        if(!isMatch){
-            return res.status(400).json({
-                msg: 'Invalid Credentials'
-            });
-        }
+        if (!isMatch) return res.status(400).json({ msg: 'Invalid Credentials' });
 
-        const payload = {
-            user: {
-                id: user.rows[0].id
-            }
-        };
+        const payload = { user: { id: user.rows[0].id } };
         jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '5d' }, (err, token) => {
-            if(err){
-                throw err;
-            }
-            res.json({
-                token
-            });
-        })
-    } catch(err){
+            if (err) throw err;
+            res.json({ token });
+        });
+    } catch (err) {
+        res.status(500).send('Server Error');
+    }
+};
+
+exports.updateProfile = async (req, res) => {
+    let { codeforces_handle, leetcode_handle } = req.body;
+    const userId = req.user.id;
+
+    if (!codeforces_handle || codeforces_handle.trim() === '') codeforces_handle = null;
+    if (!leetcode_handle || leetcode_handle.trim() === '') leetcode_handle = null;
+
+    try {
+        const result = await pool.query(
+            'UPDATE users SET codeforces_handle = $1, leetcode_handle = $2 WHERE id = $3 RETURNING codeforces_handle, leetcode_handle',
+            [codeforces_handle, leetcode_handle, userId]
+        );
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error(err.message);
         res.status(500).send('Server Error');
     }
 };

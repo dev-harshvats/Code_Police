@@ -1,62 +1,75 @@
 const axios = require('axios');
 
-exports.fetchLeetcodeStats = async(handle) => {
-    try{
-        console.log(`Fetching Leetcode data for: ${handle}`);
+exports.fetchLeetcodeStats = async (handle) => {
+  try {
+    console.log(`[LC Service] Fetching for: ${handle}`); 
 
-        const query = `
-            query userProblemsSolved($username: String!){
-                matchedUser(username: $username){
-                    submitStats: submitStatsGlobal{
-                        acSubmissionNum{
-                            difficulty
-                            count
-                        }
-                    }
-                    profile{
-                        ranking
-                    }
+    const response = await axios.post(
+      'https://leetcode.com/graphql',
+      {
+        query: `
+          query userStats($username: String!) {
+            matchedUser(username: $username) {
+              submitStats: submitStatsGlobal {
+                acSubmissionNum {
+                  difficulty
+                  count
                 }
+              }
             }
-        `;
-
-        const response = await axios.post(
-            'https://leetcode.com/graphql',
-            {
-                query,
-                variables: {
-                    username: handle
-                }
-            },
-            {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                    'Referer': 'https://leetcode.com'
-                }
+            userContestRanking(username: $username) {
+              rating
             }
-        );
-
-        const data = response.data.data;
-
-        if(!data || !data.matchedUser){
-            throw new Error("Leetcode user not found");
+          }
+        `,
+        variables: {
+          username: handle
         }
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': `https://leetcode.com/${handle}/`,
+          'Origin': 'https://leetcode.com',
+        },
+        timeout: 8000
+      }
+    );
 
-        const totalSolved = data.matchedUser.submitStats.acSubmissionNum.find(
-            (item) => item.difficulty === 'All'
-        ).count;
+    const data = response.data;
 
-        console.log(`Success! Found ${totalSolved} solved problems.`);
-
-        return{
-            handle: handle,
-            totalSolved: totalSolved,
-            rank: data.matchedUser.profile.ranking
-        };
-
-    } catch(err){
-        console.error("Leetcode Fetch Error", err.message);
-        return null;
+    if (data.errors) {
+      console.error(`[LC Service] API Error:`, data.errors);
+      return null;
     }
+
+    if (!data.data || !data.data.matchedUser) {
+      console.error(`[LC Service] User not found: ${handle}`);
+      return null;
+    }
+
+    // 1. Get Solved Count
+    const totalSolved = data.data.matchedUser.submitStats.acSubmissionNum.find(
+      (item) => item.difficulty === 'All'
+    ).count;
+
+    // 2. Get Contest Rating (Round to nearest integer)
+    // Note: userContestRanking can be null if user never did a contest
+    const contestRating = data.data.userContestRanking 
+        ? Math.round(data.data.userContestRanking.rating) 
+        : 0; 
+
+    console.log(`[LC Service] Success: ${handle} | Solved: ${totalSolved} | Rating: ${contestRating}`);
+
+    return {
+      handle: handle,
+      totalSolved: totalSolved,
+      rating: contestRating
+    };
+
+  } catch (error) {
+    console.error(`[LC Service] Error:`, error.message);
+    return null;
+  }
 };

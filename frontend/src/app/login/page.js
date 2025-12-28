@@ -2,96 +2,115 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import api from '../../utils/api'; // Our Axios instance
+import api from '../../utils/api';
 import Cookies from 'js-cookie';
 import Link from 'next/link';
+import { motion } from 'framer-motion';
+import { Mail, Lock } from 'lucide-react'; // Import Icons
 
 export default function Login() {
   const router = useRouter();
-  const [formData, setFormData] = useState({
-    email: '',
-    password: '',
-  });
+  const [formData, setFormData] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
 
-  const { email, password } = formData;
-
-  const onChange = (e) =>
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-
-  const onSubmit = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setError(''); // Clear previous errors
-    
     try {
-      // 1. Send login request to Backend
       const res = await api.post('/auth/login', formData);
-
-      // 2. Save the received token in cookies
-      Cookies.set('token', res.data.token, { expires: 5 });
-
-      // 3. Redirect to Dashboard
+      Cookies.set('token', res.data.token, { expires: 7 }); 
       router.push('/dashboard');
     } catch (err) {
-      console.error(err);
-      // Display the error message sent by backend (e.g., "Invalid Credentials")
-      setError(err.response?.data?.msg || 'Login failed');
+      setError(err.response?.data?.msg || 'Invalid credentials');
     }
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-100">
-      <div className="w-full max-w-md bg-white p-8 rounded-lg shadow-md">
-        <h2 className="text-2xl font-bold mb-6 text-center text-gray-800">
-          Welcome Back
-        </h2>
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+        className="bg-zinc-900/40 backdrop-blur-xl border border-white/10 shadow-2xl w-[380px] px-8 py-10 rounded-2xl flex flex-col items-center"
+      >
+        <h2 className="text-3xl text-white font-bold mb-2 tracking-tight">System<span className="text-orange-500">Login</span></h2>
+        <p className="text-zinc-500 text-xs uppercase tracking-widest mb-8">Access Dashboard</p>
 
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4">
-            {error}
-          </div>
+            <motion.div 
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-orange-500 text-xs mb-4 text-center bg-orange-900/10 px-4 py-2 rounded-xl border border-orange-500/20 w-full font-mono"
+            >
+                {`> Error: ${error}`}
+            </motion.div>
         )}
 
-        <form onSubmit={onSubmit}>
-          <div className="mb-4">
-            <label className="block text-gray-700 mb-2">Email</label>
-            <input
-              type="email"
-              name="email"
-              value={email}
-              onChange={onChange}
-              className="w-full p-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 text-black"
-              required
-            />
-          </div>
-
-          <div className="mb-6">
-            <label className="block text-gray-700 mb-2">Password</label>
-            <input
-              type="password"
-              name="password"
-              value={password}
-              onChange={onChange}
-              className="w-full p-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 text-black"
-              required
-            />
-          </div>
-
-          <button
-            type="submit"
-            className="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700 transition"
+        <form onSubmit={handleSubmit} className="w-full flex flex-col gap-4">
+          
+          {/* EMAIL INPUT */}
+          <motion.div 
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.1, duration: 0.4 }}
+            className="relative"
           >
-            Log In
-          </button>
+              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+              <input 
+                name="email" 
+                type="email" 
+                placeholder="Email Address" 
+                onChange={(e) => setFormData({...formData, email: e.target.value})}
+                className="w-full pl-12 pr-4 py-3 rounded-xl outline-none transition-all text-sm bg-black/60 border border-orange-500/20 text-orange-500 font-mono placeholder:text-white/30 placeholder:font-sans focus:ring-1 focus:ring-orange-500"
+                required
+              />
+          </motion.div>
+          
+          {/* PASSWORD INPUT */}
+          <motion.div 
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.2, duration: 0.4 }}
+            className="relative"
+          >
+              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+              <input 
+                name="password" 
+                type="password" 
+                placeholder="Password" 
+                onChange={(e) => setFormData({...formData, password: e.target.value})}
+                className="w-full pl-12 pr-4 py-3 rounded-xl outline-none transition-all text-sm bg-black/60 border border-orange-500/20 text-orange-500 font-mono placeholder:text-white/30 placeholder:font-sans focus:ring-1 focus:ring-orange-500"
+                required
+              />
+          </motion.div>
+
+          <motion.button 
+            type="submit" 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ 
+              opacity: 1, 
+              y: 0,
+              transition: { delay: 0.3, duration: 0.4 } 
+            }}
+            whileHover={{ 
+              scale: 1.05, 
+              transition: { duration: 0.1 } 
+            }}
+            whileTap={{ scale: 0.95 }}
+            className="w-full mt-4 py-3 rounded-xl cursor-pointer tracking-wide uppercase text-sm bg-orange-500 text-black font-semibold shadow-[0_0_15px_rgba(249,115,22,0.3)] hover:shadow-[0_0_25px_rgba(249,115,22,0.5)]"
+          >
+            Authenticate
+          </motion.button>
         </form>
 
-        <p className="mt-4 text-center text-gray-600">
-          Don't have an account?{' '}
-          <Link href="/signup" className="text-blue-500 hover:underline">
-            Sign Up
-          </Link>
-        </p>
-      </div>
+        <motion.p 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.5, duration: 0.4 }}
+            className="mt-6 text-xs text-zinc-500"
+        >
+          New User? <Link href="/signup" className="text-orange-500 hover:text-orange-400 cursor-pointer font-mono hover:underline">./signup</Link>
+        </motion.p>
+      </motion.div>
     </div>
   );
 }
