@@ -3,19 +3,16 @@ const pool = require('../config/db');
 const cfService = require('./codeforcesService');
 const lcService = require('./leetcodeService');
 
-// Helper for delay (to avoid rate limits)
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// --- 1. EXISTING: UPDATE STATS (Runs every 2 hours) ---
 const updateUserStats = async () => {
-    console.log('[Cron] Starting scheduled update of all users...');
-    
+    console.log('[Cron] Starting scheduled stats update...');
     try {
-        // 1. Get all users
         const { rows: users } = await pool.query('SELECT id, codeforces_handle, leetcode_handle FROM users');
-        console.log(`[Cron] Found ${users.length} users to update.`);
 
         for (const user of users) {
-            // --- Update Codeforces ---
+            // Update CF
             if (user.codeforces_handle) {
                 try {
                     const data = await cfService.fetchCFStats(user.codeforces_handle);
@@ -24,16 +21,12 @@ const updateUserStats = async () => {
                             'UPDATE users SET cf_rating = $1, cf_solved = $2 WHERE id = $3', 
                             [data.rating, data.totalSolved, user.id]
                         );
-                        console.log(`[Cron] Updated CF for ${user.codeforces_handle}`);
                     }
-                } catch (err) {
-                    console.error(`[Cron] Failed CF update for ${user.codeforces_handle}: ${err.message}`);
-                }
-                // Wait 500ms between CF requests
+                } catch (err) {}
                 await sleep(500); 
             }
 
-            // --- Update LeetCode ---
+            // Update LC
             if (user.leetcode_handle) {
                 try {
                     const data = await lcService.fetchLeetcodeStats(user.leetcode_handle);
@@ -42,30 +35,42 @@ const updateUserStats = async () => {
                             'UPDATE users SET lc_solved = $1, lc_rating = $2 WHERE id = $3', 
                             [data.totalSolved, data.rating, user.id]
                         );
-                        console.log(`[Cron] Updated LC for ${user.leetcode_handle}`);
                     }
-                } catch (err) {
-                    console.error(`[Cron] Failed LC update for ${user.leetcode_handle}: ${err.message}`);
-                }
-                // Wait 2 seconds between LC requests (Strict Rate Limits!)
+                } catch (err) {}
                 await sleep(2000);
             }
         }
-        console.log('[Cron] Update cycle complete.');
-        
+        console.log('[Cron] Stats update complete.');
     } catch (err) {
-        console.error('[Cron] Critical Error:', err.message);
+        console.error('[Cron] Error:', err.message);
+    }
+};
+
+// --- 2. NEW: MIDNIGHT RESET (Runs at 00:00) ---
+const resetDailyGoals = async () => {
+    console.log('[Cron] Performing Midnight Goal Reset...');
+    try {
+        // Set the "Start Count" to the "Current Solved Count" for all users
+        // This effectively resets "Today's Solved" to 0
+        await pool.query(`
+            UPDATE users 
+            SET cf_start_count = cf_solved, 
+                lc_start_count = lc_solved
+        `);
+        console.log('[Cron] Daily baselines reset successfully.');
+    } catch (err) {
+        console.error('[Cron] Midnight Reset Failed:', err.message);
     }
 };
 
 const startCron = () => {
-    // Schedule task to run every 2 hours: '0 */2 * * *'
-    // For testing, you can change this to '* * * * *' (every minute)
-    cron.schedule('0 */2 * * *', () => {
-        updateUserStats();
-    });
+    // 1. Update Stats every 2 hours
+    cron.schedule('0 */2 * * *', updateUserStats);
     
-    console.log('[System] Cron Job scheduled (Every 2 Hours).');
+    // 2. Reset Daily Goal Baseline at Midnight (00:00)
+    cron.schedule('0 0 * * *', resetDailyGoals);
+
+    console.log('[System] Cron Jobs scheduled (Stats: 2h, Reset: Midnight).');
 };
 
 module.exports = { startCron, updateUserStats };

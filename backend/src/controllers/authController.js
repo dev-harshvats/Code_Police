@@ -5,31 +5,23 @@ const cfService = require('../services/codeforcesService');
 const lcService = require('../services/leetcodeService');
 
 exports.signup = async (req, res) => {
-    // 1. Sanitize Inputs (Convert empty strings to null)
     let { email, password, cfHandle, leetcodeHandle } = req.body;
     
     if (!cfHandle || cfHandle.trim() === '') cfHandle = null;
     if (!leetcodeHandle || leetcodeHandle.trim() === '') leetcodeHandle = null;
 
-    console.log('Signup Request:', { email, cfHandle, leetcodeHandle });
-
     try {
-        // 2. Validate: Must have at least one handle
         if (!cfHandle && !leetcodeHandle) {
             return res.status(400).json({ msg: 'Please provide at least one platform handle.' });
         }
 
-        // 3. Check if user exists
         const userCheck = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-        if (userCheck.rows.length > 0) {
-            return res.status(400).json({ msg: 'User already exists' });
-        }
+        if (userCheck.rows.length > 0) return res.status(400).json({ msg: 'User already exists' });
 
-        // 4. Hash password
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        // 5. Insert into DB (Nulls will be inserted correctly)
+        // Insert User
         const newUser = await pool.query(
             'INSERT INTO users (email, password, codeforces_handle, leetcode_handle) VALUES ($1, $2, $3, $4) RETURNING *',
             [email, hashedPassword, cfHandle, leetcodeHandle]
@@ -37,30 +29,30 @@ exports.signup = async (req, res) => {
 
         const userId = newUser.rows[0].id;
 
-        // 6. Background Data Fetch (Only for provided handles)
+        // --- FETCH INITIAL STATS & SET BASELINE ---
+        // We set cf_start_count = totalSolved immediately so "Today's Progress" starts at 0
         if (cfHandle) {
-            cfService.fetchCFStats(cfHandle)
-                .then(data => {
-                    if (data && data.rating) {
-                        pool.query('UPDATE users SET cf_rating = $1, cf_solved = $2 WHERE id = $3', 
-                        [data.rating, data.totalSolved, userId]);
-                    }
-                })
-                .catch(err => console.error(`[Signup] CF Fetch Error: ${err.message}`));
+            cfService.fetchCFStats(cfHandle).then(data => {
+                if (data) {
+                    pool.query(
+                        'UPDATE users SET cf_rating = $1, cf_solved = $2, cf_start_count = $2 WHERE id = $3', 
+                        [data.rating, data.totalSolved, userId]
+                    );
+                }
+            });
         }
 
         if (leetcodeHandle) {
-            lcService.fetchLeetcodeStats(leetcodeHandle)
-                .then(data => {
-                    if (data && data.totalSolved) {
-                        pool.query('UPDATE users SET lc_solved = $1, lc_rating = $2 WHERE id = $3', 
-                        [data.totalSolved, data.rating, userId]);
-                    }
-                })
-                .catch(err => console.error(`[Signup] LC Fetch Error: ${err.message}`));
+            lcService.fetchLeetcodeStats(leetcodeHandle).then(data => {
+                if (data) {
+                    pool.query(
+                        'UPDATE users SET lc_solved = $1, lc_rating = $2, lc_start_count = $1 WHERE id = $3', 
+                        [data.totalSolved, data.rating, userId]
+                    );
+                }
+            });
         }
 
-        // 7. Return Token
         const payload = { user: { id: userId } };
         jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '5d' }, (err, token) => {
             if (err) throw err;
@@ -73,7 +65,6 @@ exports.signup = async (req, res) => {
     }
 };
 
-// Login and UpdateProfile functions remain unchanged...
 exports.login = async (req, res) => {
     const { email, password } = req.body;
     try {
@@ -107,7 +98,18 @@ exports.updateProfile = async (req, res) => {
         );
         res.json(result.rows[0]);
     } catch (err) {
-        console.error(err.message);
+        res.status(500).send('Server Error');
+    }
+};
+
+// --- NEW: Update Daily Goal ---
+exports.updateGoal = async (req, res) => {
+    const { daily_goal } = req.body;
+    const userId = req.user.id;
+    try {
+        await pool.query('UPDATE users SET daily_goal = $1 WHERE id = $2', [daily_goal, userId]);
+        res.json({ msg: 'Goal updated' });
+    } catch (err) {
         res.status(500).send('Server Error');
     }
 };
